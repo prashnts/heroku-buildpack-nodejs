@@ -15,7 +15,6 @@ DEFAULT_CACHE="node_modules bower_components"
 ### Configure directories
 
 BUILD_DIR=${1:-}
-CACHE_DIR=${2:-}
 ENV_DIR=${3:-}
 BP_DIR=$(cd $(dirname ${0:-}); cd ..; pwd)
 
@@ -33,8 +32,6 @@ source $BP_DIR/lib/json.sh
 source $BP_DIR/lib/failure.sh
 source $BP_DIR/lib/environment.sh
 source $BP_DIR/lib/binaries.sh
-source $BP_DIR/lib/cache.sh
-source $BP_DIR/lib/dependencies.sh
 
 ### Handle errors
 
@@ -105,78 +102,3 @@ install_bins() {
 
 header "Installing binaries"
 install_bins | output "$LOG_FILE"
-
-restore_cache() {
-  local cache_status="$(get_cache_status)"
-
-  if $YARN; then
-    if [ -e "$BUILD_DIR/node_modules" ]; then
-      warn "node_modules checked into source control" "https://blog.heroku.com/node-habits-2016#9-only-git-the-important-bits"
-      rm -rf "$BUILD_DIR/node_modules"
-    fi
-  fi
-  if [ "$cache_status" == "valid" ]; then
-    local cache_directories=$(get_cache_directories)
-    if [ "$cache_directories" == "" ]; then
-      echo "Loading 2 from cacheDirectories (default):"
-      restore_cache_directories "$BUILD_DIR" "$CACHE_DIR" "$DEFAULT_CACHE"
-    else
-      echo "Loading $(echo $cache_directories | wc -w | xargs) from cacheDirectories (package.json):"
-      restore_cache_directories "$BUILD_DIR" "$CACHE_DIR" $cache_directories
-    fi
-  else
-    echo "Skipping cache restore ($cache_status)"
-  fi
-}
-
-header "Restoring cache"
-restore_cache | output "$LOG_FILE"
-
-build_dependencies() {
-  run_if_present 'heroku-prebuild'
-  if $YARN; then
-    yarn_node_modules "$BUILD_DIR"
-  elif $PREBUILD; then
-    echo "Prebuild detected (node_modules already exists)"
-    npm_rebuild "$BUILD_DIR"
-  else
-    npm_node_modules "$BUILD_DIR"
-  fi
-  run_if_present 'heroku-postbuild'
-  # TODO: run_if_present 'build'
-}
-
-header "Building dependencies"
-build_dependencies | output "$LOG_FILE"
-
-cache_build() {
-  local cache_directories=$(get_cache_directories)
-
-  echo "Clearing previous node cache"
-  clear_cache
-  if ! ${NODE_MODULES_CACHE:-true}; then
-    echo "Skipping cache save (disabled by config)"
-  elif [ "$cache_directories" == "" ]; then
-    echo "Saving 2 cacheDirectories (default):"
-    save_cache_directories "$BUILD_DIR" "$CACHE_DIR" "$DEFAULT_CACHE"
-  else
-    echo "Saving $(echo $cache_directories | wc -w | xargs) cacheDirectories (package.json):"
-    save_cache_directories "$BUILD_DIR" "$CACHE_DIR" $cache_directories
-  fi
-  save_signature
-}
-
-header "Caching build"
-cache_build | output "$LOG_FILE"
-
-summarize_build() {
-  if $NODE_VERBOSE; then
-    list_dependencies "$BUILD_DIR"
-  fi
-}
-
-header "Build succeeded!"
-summarize_build | output "$LOG_FILE"
-
-warn_no_start "$LOG_FILE"
-warn_unmet_dep "$LOG_FILE"
